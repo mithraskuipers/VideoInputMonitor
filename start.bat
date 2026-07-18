@@ -37,18 +37,63 @@ if %errorlevel%==0 (
     exit /b 1
 )
 
-rem --- Find this machine's LAN IPv4 address, so other devices on the same
-rem     network can reach the server too (not just this PC). Try PowerShell
-rem     first since it correctly skips loopback/link-local addresses; fall
-rem     back to parsing ipconfig if PowerShell isn't available.
-set "LANIP="
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 ^| Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } ^| Select-Object -First 1 -ExpandProperty IPAddress)" 2^>nul`) do set "LANIP=%%i"
+rem --- Find every LAN IPv4 address on this machine, so other devices on the
+rem     same network can reach the server too (not just this PC), and so
+rem     you can see all of them if this PC has more than one active adapter
+rem     (e.g. both Wi-Fi and Ethernet).
+rem
+rem     Skips any adapter that looks like a VPN/virtual/tunnel interface by
+rem     name — Tailscale, WireGuard, and similar tools install their own
+rem     virtual adapter, which only other devices on that same virtual
+rem     network can reach, not everything on your actual Wi-Fi/LAN. The
+rem     adapter that owns the default route (best metric) is listed first;
+rem     any other non-VPN adapters with an IPv4 address are listed after it.
+set "LANCOUNT=0"
+rem NOTE: the regex alternation below uses ^| (not a bare |) between each
+rem term. Inside a for /f backtick command, cmd.exe scans for pipe
+rem characters even inside quoted strings, so a plain | here — even one
+rem that's just regex syntax, not an actual pipeline — gets misread as a
+rem command pipe and silently breaks the whole line. Hence no shared
+rem %VPNPATTERN% variable: substituting one in would carry raw, unescaped
+rem pipes into this context.
+for /f "usebackq tokens=1,2 delims=," %%i in (`powershell -NoProfile -Command "$vpnPattern = 'Tailscale^|WireGuard^|VPN^|TAP^|ZeroTier^|Hamachi^|Cisco^|OpenVPN^|Nord^|utun^|PPP^|Loopback'; $defaultIdx = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue ^| Sort-Object -Property RouteMetric ^| Select-Object -First 1 -ExpandProperty InterfaceIndex; Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue ^| Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.IPAddress -ne '127.0.0.1' } ^| ForEach-Object { $ipObj = $_; $a = Get-NetAdapter -InterfaceIndex $ipObj.InterfaceIndex -ErrorAction SilentlyContinue; if ($a -and $a.Name -notmatch $vpnPattern -and $a.InterfaceDescription -notmatch $vpnPattern) { [PSCustomObject]@{IP=$ipObj.IPAddress; Name=$a.Name; IsDefault=($ipObj.InterfaceIndex -eq $defaultIdx)} } } ^| Sort-Object -Property @{Expression={ -not $_.IsDefault }} ^| ForEach-Object { '{0},{1}' -f $_.IP, $_.Name }" 2^>nul`) do (
+    set /a LANCOUNT+=1
+    set "LANIP_!LANCOUNT!=%%i"
+    set "LANADAPTER_!LANCOUNT!=%%j"
+)
 
-if not defined LANIP (
+if !LANCOUNT!==0 (
+    rem PowerShell approach found nothing (older Windows without the
+    rem NetTCPIP/NetAdapter cmdlets, etc.) — fall back to parsing ipconfig
+    rem and take every non-loopback, non-APIPA address it reports.
     for /f "tokens=2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4 Address"') do (
-        if not defined LANIP set "LANIP=%%a"
+        set "TEMPIP=%%a"
+        set "TEMPIP=!TEMPIP: =!"
+        if not "!TEMPIP!"=="127.0.0.1" if not "!TEMPIP:~0,7!"=="169.254" (
+            set /a LANCOUNT+=1
+            set "LANIP_!LANCOUNT!=!TEMPIP!"
+            set "LANADAPTER_!LANCOUNT!=unknown adapter"
+        )
     )
-    set "LANIP=!LANIP: =!"
+)
+
+rem --- Make sure Windows Firewall isn't silently dropping inbound
+rem     connections on this port — the most common reason the page loads
+rem     fine locally but times out / refuses on other devices. This adds a
+rem     scoped rule (Private + Domain networks only) if one doesn't already
+rem     exist. Requires admin rights to succeed; if it can't (not elevated),
+rem     it fails harmlessly and we tell you so in the summary below.
+set "FWNOTE="
+netsh advfirewall firewall show rule name="VideoInputMonitor %PORT%" | findstr /i "No rules match" >nul 2>nul
+if %errorlevel%==0 (
+    netsh advfirewall firewall add rule name="VideoInputMonitor %PORT%" dir=in action=allow protocol=TCP localport=%PORT% profile=private,domain >nul 2>nul
+    if !errorlevel!==0 (
+        set "FWNOTE=Added a Windows Firewall rule allowing inbound TCP %PORT% (Private/Domain networks)."
+    ) else (
+        set "FWNOTE=Could not add a firewall rule automatically (needs admin). If other devices still can't connect: right-click start.bat, 'Run as administrator', once - or allow python.exe / TCP port %PORT% manually in Windows Defender Firewall."
+    )
+) else (
+    set "FWNOTE=Firewall rule for port %PORT% already present."
 )
 
 rem --- Bind explicitly to all network interfaces (0.0.0.0) so the server is
@@ -73,22 +118,37 @@ echo.
 echo VideoInputMonitor is running at:
 if defined WT_SESSION (
     echo   Local:    !ESC!]8;;http://localhost:%PORT%/index.html!ESC!\http://localhost:%PORT%/index.html!ESC!]8;;!ESC!\
-    if defined LANIP (
-        echo   Network:  !ESC!]8;;http://%LANIP%:%PORT%/index.html!ESC!\http://%LANIP%:%PORT%/index.html!ESC!]8;;!ESC!\   ^(other devices on this Wi-Fi/LAN^)
+    if !LANCOUNT! GTR 0 (
+        for /l %%n in (1,1,!LANCOUNT!) do (
+            echo   Network:  !ESC!]8;;http://!LANIP_%%n!:%PORT%/index.html!ESC!\http://!LANIP_%%n!:%PORT%/index.html!ESC!]8;;!ESC!\   ^(!LANADAPTER_%%n!^)
+        )
     )
 ) else (
     echo   Local:    http://localhost:%PORT%/index.html
-    if defined LANIP (
-        echo   Network:  http://%LANIP%:%PORT%/index.html   ^(other devices on this Wi-Fi/LAN^)
+    if !LANCOUNT! GTR 0 (
+        for /l %%n in (1,1,!LANCOUNT!) do (
+            echo   Network:  http://!LANIP_%%n!:%PORT%/index.html   ^(!LANADAPTER_%%n!^)
+        )
     )
     echo   ^(Ctrl+click a link above if your terminal supports it, or copy/paste it into a browser.^)
 )
-if not defined LANIP (
+if !LANCOUNT!==0 (
     echo   Network:  could not detect a LAN IP automatically — run "ipconfig" to find it manually.
 )
 echo.
-echo If Windows Firewall prompts you, allow access on Private networks
-echo so other devices can reach the Network URL above.
+echo %FWNOTE%
+echo.
+echo If other devices still can't connect after this:
+echo   - If more than one Network URL is listed above, try each one — only
+echo     the address on the same Wi-Fi/Ethernet segment as the other device
+echo     will work.
+echo   - Confirm this PC's network is set to "Private" ^(not "Public"^) in
+echo     Windows Settings, Network and internet.
+echo   - Make sure the other device is on the SAME Wi-Fi network ^(not a
+echo     guest network — many routers isolate guest devices from each other^).
+echo   - Some routers have "AP/Client Isolation" enabled, which blocks
+echo     device-to-device traffic even on the same network; check router
+echo     settings if the above doesn't fix it.
 echo.
 echo Keep this window open while you use it.
 echo Closing this window stops the server.
