@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VideoInputMonitor</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230A0C0E'/%3E%3Crect x='11' y='11' width='10' height='10' rx='2' fill='%2324E5A8'/%3E%3C/svg%3E">
+
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<div class="header">
+  <div class="brand">
+    <div class="brand-mark" id="brandMark"></div>
+    <div class="brand-text"><b>VIDEO INPUT</b> MONITOR</div>
+  </div>
+  <div class="clock" id="clock">00:00:00</div>
+</div>
+
+<div class="stage">
+
+  <div class="viewport-wrap" id="viewportWrap">
+    <video id="screen" autoplay playsinline disablepictureinpicture></video>
+
+    <div class="viewport-overlay" id="overlay">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2" y="5" width="15" height="12" rx="1.5"/>
+        <path d="M17 9.5l5-3v11l-5-3z"/>
+      </svg>
+      <span>No signal</span>
+    </div>
+
+    <div class="hud">
+      <div class="tally" id="tally">
+        <div class="tally-dot"></div>
+        <div class="tally-label" id="tallyLabel">STANDBY</div>
+      </div>
+      <div class="hud-stat" id="hudRes">—</div>
+      <div class="hud-stat" id="hudFps">—</div>
+    </div>
+
+    <button class="fs-btn" id="fsBtn" title="Fullscreen" aria-label="Toggle fullscreen">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="panel">
+
+    <div class="panel-group">
+      <div class="panel-label">
+        <span>Video Input</span>
+        <button class="refresh-btn" id="refreshBtn" title="Refresh device list" aria-label="Refresh devices">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+      </div>
+      <select id="videoDevices"></select>
+    </div>
+
+    <div class="panel-group">
+      <div class="panel-label"><span>Audio Input</span></div>
+      <select id="audioDevices"></select>
+    </div>
+
+    <div class="panel-group">
+      <div class="panel-label"><span>Resolution / Rate</span></div>
+      <select id="resolution">
+        <option value="1920x1080x60">1920 × 1080 · 60p</option>
+        <option value="1920x1080x30">1920 × 1080 · 30p</option>
+        <option value="1280x720x60" selected>1280 × 720 · 60p</option>
+        <option value="1280x720x30">1280 × 720 · 30p</option>
+        <option value="720x480x30">720 × 480 · 30p</option>
+        <option value="native">Native / Auto</option>
+      </select>
+    </div>
+
+    <button class="start-btn" id="startBtn">Start Capture</button>
+
+    <div class="panel-group meter-block">
+      <div class="panel-label"><span>Audio Level</span></div>
+      <div class="meter-row">
+        <div class="meter-ch-label">L</div>
+        <div class="meter-track"><div class="meter-fill" id="meterL"></div></div>
+        <div class="meter-db" id="dbL">-∞</div>
+      </div>
+      <div class="meter-row">
+        <div class="meter-ch-label">R</div>
+        <div class="meter-track"><div class="meter-fill" id="meterR"></div></div>
+        <div class="meter-db" id="dbR">-∞</div>
+      </div>
+    </div>
+
+    <div class="panel-group">
+      <div class="panel-label"><span>Session</span></div>
+      <div class="readout">
+        <div class="readout-row"><span>Device</span><span id="roDevice">—</span></div>
+        <div class="readout-row"><span>Latency mode</span><span>Direct / Interactive</span></div>
+        <div class="readout-row"><span>Audio processing</span><span>Passthrough</span></div>
+      </div>
+      <div class="status-line" id="statusLine">Waiting for device selection…</div>
+    </div>
+
+    <button class="shutdown-btn" id="shutdownBtn">Release Camera &amp; Reset</button>
+
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
